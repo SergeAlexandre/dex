@@ -270,7 +270,11 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 		}
 		r.Handle(path.Join(issuerURL.Path, p), instrumentHandlerCounter(p, handler))
 	}
-	r.NotFoundHandler = http.HandlerFunc(http.NotFound)
+
+	//r.NotFoundHandler = http.HandlerFunc(http.NotFound)
+	r.NotFoundHandler = &notFoundHandler{
+		logger: c.Logger,
+	}
 
 	discoveryHandler, err := s.discoveryHandler()
 	if err != nil {
@@ -307,6 +311,15 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 	s.startGarbageCollection(ctx, value(c.GCFrequency, 5*time.Minute), now)
 
 	return s, nil
+}
+
+type notFoundHandler struct {
+	logger log.Logger
+}
+
+func (h *notFoundHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.logger.Infof("Error 404 (path='%s')", r.URL)
+	http.Error(w, fmt.Sprintf("404 page not found. (path='%s')", r.URL), http.StatusNotFound)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
