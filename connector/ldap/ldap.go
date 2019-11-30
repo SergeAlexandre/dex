@@ -16,6 +16,10 @@ import (
 	"github.com/dexidp/dex/pkg/log"
 )
 
+// Need this to set a *bool in config
+var TRUE bool = true
+var FALSE bool = false
+
 // Config holds the configuration parameters for the LDAP connector. The LDAP
 // connectors require executing two queries, the first to find the user based on
 // the username and password given to the connector. The second to use the user
@@ -109,13 +113,14 @@ type Config struct {
 		NameAttr                  string `json:"nameAttr"`              // No default.
 		PreferredUsernameAttrAttr string `json:"preferredUsernameAttr"` // No default.
 
-		// If this is set, the email claim of the id token will be constructed as
+		// If this is set, the email clain may be constrtucted as:
 		// getAttr(EmailPrefixAttr) + "@" + EmailSuffix
-		// EmailOverride will allow overriding of an existing email attribute.
-		// (If false, email claim will be always build using these values).
-		EmailPrefixAttr           string `json:"emailPrefixAttr"`
-		EmailSuffix               string `json:"emailSuffix"` // No default.
-		EmailOverride             bool   `json:"emailOverride"`
+		EmailSuffix     string `json:"emailSuffix"`     // No default.
+		EmailPrefixAttr string `json:"emailPrefixAttr"` // if nil, take the Username
+		// This is when both emailSuffix and user's email are defined.
+		// If False, the email claim is the user's email.
+		// If True email will always be getAttr(EmailPrefixAttr) + "@" + EmailSuffix
+		EmailOverride *bool `json:"emailOverride"` // Default: True, for compatibility
 
 	} `json:"userSearch"`
 
@@ -218,11 +223,17 @@ func (c *Config) openConnector(logger log.Logger) (*ldapConnector, error) {
 		c.UserSearch.EmailAttr = "mail"
 	}
 
-	// Some coherency checks
-	if c.UserSearch.EmailOverride {
-		if c.UserSearch.EmailPrefixAttr == "" || c.UserSearch.EmailSuffix == "" {
-			return nil, fmt.Errorf("ldap: if userSearch.emailOverride is set, both userSearch.emailPrefixAttr and userSearch.emailSuffix must be set")
+	if c.UserSearch.EmailOverride == nil {
+		if c.UserSearch.EmailSuffix != "" {
+			c.UserSearch.EmailOverride = &TRUE
+		} else {
+			c.UserSearch.EmailOverride = &FALSE
 		}
+	}
+
+	// Some coherency checks
+	if *c.UserSearch.EmailOverride && c.UserSearch.EmailSuffix == "" {
+		return nil, fmt.Errorf("ldap: if userSearch.emailOverride is set, userSearch.emailSuffix must be set")
 	}
 
 	var (
@@ -370,15 +381,24 @@ func (c *ldapConnector) identityFromEntry(user ldap.Entry) (ident connector.Iden
 	}
 
 	ident.Email = getAttr(user, c.UserSearch.EmailAttr)
-	if ident.Email == "" || c.UserSearch.EmailOverride {
-		if c.UserSearch.EmailPrefixAttr == "" || c.UserSearch.EmailSuffix == "" {
+	if ident.Email == "" || *c.UserSearch.EmailOverride {
+		if c.UserSearch.EmailSuffix == "" {
 			missing = append(missing, c.UserSearch.EmailAttr)
 		} else {
-			emailPrefix := getAttr(user, c.UserSearch.EmailPrefixAttr)
-			if emailPrefix == "" {
-				missing = append(missing, c.UserSearch.EmailPrefixAttr)
+			var emailPrefix string
+			if c.UserSearch.EmailPrefixAttr == "" {
+				if ident.Username == "" {
+					missing = append(missing, c.UserSearch.NameAttr)
+				} else {
+					ident.Email = ident.Username + "@" + c.UserSearch.EmailSuffix
+				}
 			} else {
-				ident.Email = emailPrefix + "@" + c.UserSearch.EmailSuffix
+				emailPrefix = getAttr(user, c.UserSearch.EmailPrefixAttr)
+				if emailPrefix == "" {
+					missing = append(missing, c.UserSearch.EmailPrefixAttr)
+				} else {
+					ident.Email = emailPrefix + "@" + c.UserSearch.EmailSuffix
+				}
 			}
 		}
 	}

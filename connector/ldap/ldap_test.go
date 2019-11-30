@@ -879,7 +879,7 @@ func runTests(t *testing.T, schema string, connMethod connectionMethod, config *
 
 	conn, err := c.openConnector(l)
 	if err != nil {
-		t.Errorf("open connector: %v", err)
+		t.Fatalf("open connector: %v", err)
 	}
 
 	for _, test := range tests {
