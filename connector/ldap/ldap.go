@@ -109,9 +109,14 @@ type Config struct {
 		NameAttr                  string `json:"nameAttr"`              // No default.
 		PreferredUsernameAttrAttr string `json:"preferredUsernameAttr"` // No default.
 
-		// If this is set, the email claim of the id token will be constructed from the idAttr and
-		// value of emailSuffix. This should not include the @ character.
-		EmailSuffix string `json:"emailSuffix"` // No default.
+		// If this is set, the email claim of the id token will be constructed as
+		// getAttr(EmailPrefixAttr) + "@" + EmailSuffix
+		// EmailOverride will allow overriding of an existing email attribute.
+		// (If false, email claim will be always build using these values).
+		EmailPrefixAttr           string `json:"emailPrefixAttr"`
+		EmailSuffix               string `json:"emailSuffix"` // No default.
+		EmailOverride             bool   `json:"emailOverride"`
+
 	} `json:"userSearch"`
 
 	// Group search configuration.
@@ -202,6 +207,21 @@ func (c *Config) openConnector(logger log.Logger) (*ldapConnector, error) {
 	for _, field := range requiredFields {
 		if field.val == "" {
 			return nil, fmt.Errorf("ldap: missing required field %q", field.name)
+		}
+	}
+
+	// Set default
+	if c.UserSearch.IDAttr == "" {
+		c.UserSearch.IDAttr = "uid"
+	}
+	if c.UserSearch.EmailAttr == "" {
+		c.UserSearch.EmailAttr = "mail"
+	}
+
+	// Some coherency checks
+	if c.UserSearch.EmailOverride {
+		if c.UserSearch.EmailPrefixAttr == "" || c.UserSearch.EmailSuffix == "" {
+			return nil, fmt.Errorf("ldap: if userSearch.emailOverride is set, both userSearch.emailPrefixAttr and userSearch.emailSuffix must be set")
 		}
 	}
 
@@ -349,11 +369,20 @@ func (c *ldapConnector) identityFromEntry(user ldap.Entry) (ident connector.Iden
 		}
 	}
 
-	if c.UserSearch.EmailSuffix != "" {
-		ident.Email = ident.Username + "@" + c.UserSearch.EmailSuffix
-	} else if ident.Email = getAttr(user, c.UserSearch.EmailAttr); ident.Email == "" {
-		missing = append(missing, c.UserSearch.EmailAttr)
+	ident.Email = getAttr(user, c.UserSearch.EmailAttr)
+	if ident.Email == "" || c.UserSearch.EmailOverride {
+		if c.UserSearch.EmailPrefixAttr == "" || c.UserSearch.EmailSuffix == "" {
+			missing = append(missing, c.UserSearch.EmailAttr)
+		} else {
+			emailPrefix := getAttr(user, c.UserSearch.EmailPrefixAttr)
+			if emailPrefix == "" {
+				missing = append(missing, c.UserSearch.EmailPrefixAttr)
+			} else {
+				ident.Email = emailPrefix + "@" + c.UserSearch.EmailSuffix
+			}
+		}
 	}
+
 	// TODO(ericchiang): Let this value be set from an attribute.
 	ident.EmailVerified = true
 
