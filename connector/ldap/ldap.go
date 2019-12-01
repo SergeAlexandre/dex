@@ -385,7 +385,6 @@ func (c *ldapConnector) identityFromEntry(user ldap.Entry) (ident connector.Iden
 		if c.UserSearch.EmailSuffix == "" {
 			missing = append(missing, c.UserSearch.EmailAttr)
 		} else {
-			var emailPrefix string
 			if c.UserSearch.EmailPrefixAttr == "" {
 				if ident.Username == "" {
 					missing = append(missing, c.UserSearch.NameAttr)
@@ -393,7 +392,7 @@ func (c *ldapConnector) identityFromEntry(user ldap.Entry) (ident connector.Iden
 					ident.Email = ident.Username + "@" + c.UserSearch.EmailSuffix
 				}
 			} else {
-				emailPrefix = getAttr(user, c.UserSearch.EmailPrefixAttr)
+				emailPrefix := getAttr(user, c.UserSearch.EmailPrefixAttr)
 				if emailPrefix == "" {
 					missing = append(missing, c.UserSearch.EmailPrefixAttr)
 				} else {
@@ -440,6 +439,10 @@ func (c *ldapConnector) userEntry(conn *ldap.Conn, username string) (user ldap.E
 
 	if c.UserSearch.PreferredUsernameAttrAttr != "" {
 		req.Attributes = append(req.Attributes, c.UserSearch.PreferredUsernameAttrAttr)
+	}
+
+	if c.UserSearch.EmailPrefixAttr != "" {
+		req.Attributes = append(req.Attributes, c.UserSearch.EmailPrefixAttr)
 	}
 
 	c.logger.Infof("performing ldap search %s %s %s",
