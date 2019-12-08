@@ -246,6 +246,10 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 
 	instrumentHandlerCounter := func(handlerName string, handler http.Handler) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c.Logger.Debugf("From:%s -> %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+			//for k, v := range r.Header {
+			//	c.Logger.Debugf("    %s=%s", k, v)
+			//}
 			m := httpsnoop.CaptureMetrics(handler, w, r)
 			requestCounter.With(prometheus.Labels{"handler": handlerName, "code": strconv.Itoa(m.Code), "method": r.Method}).Inc()
 		})
