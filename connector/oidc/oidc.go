@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc"
@@ -41,6 +40,9 @@ type Config struct {
 
 	// Override the value of email_verifed to true in the returned claims
 	InsecureSkipEmailVerified bool `json:"insecureSkipEmailVerified"`
+
+	// InsecureEnableGroups enables groups claims. This is disabled by default until https://github.com/dexidp/dex/issues/1065 is resolved
+	InsecureEnableGroups bool `json:"insecureEnableGroups"`
 
 	// GetUserInfo uses the userinfo endpoint to get additional claims for
 	// the token. This is especially useful where upstreams return "thin"
@@ -82,18 +84,6 @@ func knownBrokenAuthHeaderProvider(issuerURL string) bool {
 	return false
 }
 
-// golang.org/x/oauth2 doesn't do internal locking. Need to do it in this
-// package ourselves and hope that other packages aren't calling it at the
-// same time.
-var registerMu = new(sync.Mutex)
-
-func registerBrokenAuthHeaderProvider(url string) {
-	registerMu.Lock()
-	defer registerMu.Unlock()
-
-	oauth2.RegisterBrokenAuthHeaderProvider(url)
-}
-
 // Open returns a connector which can be used to login users through an upstream
 // OpenID Connect provider.
 func (c *Config) Open(id string, logger log.Logger) (conn connector.Connector, err error) {
@@ -105,13 +95,15 @@ func (c *Config) Open(id string, logger log.Logger) (conn connector.Connector, e
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
+	endpoint := provider.Endpoint()
+
 	if c.BasicAuthUnsupported != nil {
 		// Setting "basicAuthUnsupported" always overrides our detection.
 		if *c.BasicAuthUnsupported {
-			registerBrokenAuthHeaderProvider(provider.Endpoint().TokenURL)
+			endpoint.AuthStyle = oauth2.AuthStyleInParams
 		}
 	} else if knownBrokenAuthHeaderProvider(c.Issuer) {
-		registerBrokenAuthHeaderProvider(provider.Endpoint().TokenURL)
+		endpoint.AuthStyle = oauth2.AuthStyleInParams
 	}
 
 	scopes := []string{oidc.ScopeOpenID}
@@ -128,7 +120,7 @@ func (c *Config) Open(id string, logger log.Logger) (conn connector.Connector, e
 		oauth2Config: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: c.ClientSecret,
-			Endpoint:     provider.Endpoint(),
+			Endpoint:     endpoint,
 			Scopes:       scopes,
 			RedirectURL:  c.RedirectURI,
 		},
@@ -139,6 +131,7 @@ func (c *Config) Open(id string, logger log.Logger) (conn connector.Connector, e
 		cancel:                    cancel,
 		hostedDomains:             c.HostedDomains,
 		insecureSkipEmailVerified: c.InsecureSkipEmailVerified,
+		insecureEnableGroups:      c.InsecureEnableGroups,
 		getUserInfo:               c.GetUserInfo,
 		userIDKey:                 c.UserIDKey,
 		userNameKey:               c.UserNameKey,
@@ -159,6 +152,7 @@ type oidcConnector struct {
 	logger                    log.Logger
 	hostedDomains             []string
 	insecureSkipEmailVerified bool
+	insecureEnableGroups      bool
 	getUserInfo               bool
 	userIDKey                 string
 	userNameKey               string
@@ -268,15 +262,25 @@ func (c *oidcConnector) createIdentity(ctx context.Context, identity connector.I
 	if !found {
 		return identity, fmt.Errorf("missing \"%s\" claim", userNameKey)
 	}
+
+	hasEmailScope := false
+	for _, s := range c.oauth2Config.Scopes {
+		if s == "email" {
+			hasEmailScope = true
+			break
+		}
+	}
+
 	email, found := claims["email"].(string)
-	if !found {
+	if !found && hasEmailScope {
 		return identity, errors.New("missing \"email\" claim")
 	}
+
 	emailVerified, found := claims["email_verified"].(bool)
 	if !found {
 		if c.insecureSkipEmailVerified {
 			emailVerified = true
-		} else {
+		} else if hasEmailScope {
 			return identity, errors.New("missing \"email_verified\" claim")
 		}
 	}
@@ -319,6 +323,19 @@ func (c *oidcConnector) createIdentity(ctx context.Context, identity connector.I
 			return identity, fmt.Errorf("oidc: not found %v claim", c.userIDKey)
 		}
 		identity.UserID = userID
+	}
+
+	if c.insecureEnableGroups {
+		vs, ok := claims["groups"].([]interface{})
+		if ok {
+			for _, v := range vs {
+				if s, ok := v.(string); ok {
+					identity.Groups = append(identity.Groups, s)
+				} else {
+					return identity, errors.New("malformed \"groups\" claim")
+				}
+			}
+		}
 	}
 
 	return identity, nil
