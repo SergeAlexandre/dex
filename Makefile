@@ -7,7 +7,8 @@ VERSION ?= latest
 VERSION ?= $(shell ./scripts/git-version)
 
 #DOCKER_REPO=quay.io/dexidp/dex
-DOCKER_REPO=dregistry1:5000/dexbs
+#DOCKER_REPO=dregistry1:5000/dexbs
+DOCKER_REPO=dexbs
 DOCKER_IMAGE=$(DOCKER_REPO):$(VERSION)
 
 $( shell mkdir -p bin )
@@ -78,7 +79,8 @@ fix: bin/golangci-lint ## Fix lint violations
 
 .PHONY: docker-image
 docker-image:
-	@sudo docker build -t $(DOCKER_IMAGE) .
+	#@sudo docker build -t $(DOCKER_IMAGE) .
+	docker build -t $(DOCKER_IMAGE) .
 
 .PHONY: proto
 proto: bin/protoc bin/protoc-gen-go

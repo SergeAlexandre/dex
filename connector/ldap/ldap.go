@@ -443,7 +443,7 @@ func (c *ldapConnector) userEntry(conn *ldap.Conn, username string) (user ldap.E
 		req.Attributes = append(req.Attributes, c.UserSearch.EmailPrefixAttr)
 	}
 
-	c.logger.Infof("performing ldap search %s %s %s",
+	c.logger.Infof("performing ldap search (1) %s %s %s",
 		req.BaseDN, scopeString(req.Scope), req.Filter)
 	resp, err := conn.Search(req)
 	if err != nil {
@@ -603,7 +603,7 @@ func (c *ldapConnector) groups(ctx context.Context, user ldap.Entry) ([]string, 
 
 		gotGroups := false
 		if err := c.do(ctx, func(conn *ldap.Conn) error {
-			c.logger.Infof("performing ldap search %s %s %s",
+			c.logger.Infof("performing ldap search (2) %s %s %s",
 				req.BaseDN, scopeString(req.Scope), req.Filter)
 			resp, err := conn.Search(req)
 			if err != nil {
