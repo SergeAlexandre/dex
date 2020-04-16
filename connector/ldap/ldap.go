@@ -309,24 +309,32 @@ func (c *ldapConnector) do(ctx context.Context, f func(c *ldap.Conn) error) erro
 	)
 	switch {
 	case c.InsecureNoSSL:
+		c.logger.Infof("ldap.Dial('tcp', %s)", c.Host)
 		conn, err = ldap.Dial("tcp", c.Host)
 	case c.StartTLS:
+		c.logger.Infof("ldap.Dial('tcp', %s)", c.Host)
 		conn, err = ldap.Dial("tcp", c.Host)
 		if err != nil {
 			return fmt.Errorf("failed to connect: %v", err)
 		}
+		c.logger.Infof("conn.StartTLS(c.tlsConfig)")
 		if err := conn.StartTLS(c.tlsConfig); err != nil {
 			return fmt.Errorf("start TLS failed: %v", err)
 		}
 	default:
+		c.logger.Infof("ldap.DialTLS('tcp', %s, c.tlsConfig)", c.Host)
 		conn, err = ldap.DialTLS("tcp", c.Host, c.tlsConfig)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		c.logger.Infof("Closing ldap connection")
+		conn.Close()
+	}()
 
 	// If bindDN and bindPW are empty this will default to an anonymous bind.
+	c.logger.Infof("conn.Bind(%s, %s)", c.BindDN, c.BindPW)
 	if err := conn.Bind(c.BindDN, c.BindPW); err != nil {
 		if c.BindDN == "" && c.BindPW == "" {
 			return fmt.Errorf("ldap: initial anonymous bind failed: %v", err)
